@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air Hockey Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #scoreboard {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            font-size: 20px;
+            color: #333;
+        }
+
+        #scoreboard input {
+            padding: 5px;
+            font-size: 16px;
+            margin-left: 10px;
+        }
+
+        #scoreboard button {
+            padding: 5px 10px;
+            font-size: 16px;
+        }
+
+        @keyframes glow {
+            0% { box-shadow: 0 0 10px #fff; }
+            50% { box-shadow: 0 0 20px #f0f; }
+            100% { box-shadow: 0 0 10px #fff; }
+        }
+
+        #gameCanvas {
+            animation: glow 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="scoreboard">
+        Player 1: <span id="player1-name">You</span> - Score: <span id="player1-score">0</span>
+        Player 2: <span id="player2-name">Opponent</span> - Score: <span id="player2-score">0</span>
+        <div id="name-fields">
+            <input type="text" id="player1-input" placeholder="Player 1 name...">
+            <input type="text" id="player2-input" placeholder="Player 2 name...">
+            <button onclick="setNames()">Set Names</button>
+        </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const socket = new WebSocket('wss://46ed-93-180-124-143.ngrok-free.app');
+
+        socket.onopen = () => {
+            console.log('Connected to WebSocket server');
+        };
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'paddle') {
+                player2.x = data.x;
+                player2.y = canvas.height - data.y - player2.height; // Adjust for opposite view
+            } else if (data.type === 'ball') {
+                balls[data.index].x = data.x;
+                balls[data.index].y = data.y;
+                balls[data.index].dx = data.dx;
+                balls[data.index].dy = data.dy;
+            } else if (data.type === 'score') {
+                player1Score = data.player1Score;
+                player2Score = data.player2Score;
+                updateScoreboard();
+            }
+        };
+
+        function sendPaddleData() {
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'paddle',
+                    x: player1.x,
+                    y: canvas.height - player1.y - player1.height // Adjust for rotated view
+                }));
+            }
+        }
+
+        function sendBallData(index) {
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'ball',
+                    index,
+                    x: balls[index].x,
+                    y: balls[index].y,
+                    dx: balls[index].dx,
+                    dy: balls[index].dy
+                }));
+            }
+        }
+
+        function sendScoreData() {
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'score',
+                    player1Score: player1Score,
+                    player2Score: player2Score
+                }));
+            }
+        }
+
+        let player1Name = "You";
+        let player2Name = "Opponent";
+        let player1Score = 0;
+        let player2Score = 0;
+
+        const paddleWidth = 100;
+        const paddleHeight = 20;
+        const ballSize = 40;
+        let gamePaused = false;
+
+        const player1 = {
+            x: canvas.width / 2 - paddleWidth / 2,
+            y: canvas.height - paddleHeight - 150, // Lowered paddle for Player 1
+            width: paddleWidth,
+            height: paddleHeight,
+            dx: 0,
+            dy: 0
+        };
+
+        const player2 = {
+            x: canvas.width / 2 - paddleWidth / 2,
+            y: 150, // Lowered paddle for Player 2
+            width: paddleWidth,
+            height: paddleHeight,
+            dx: 0,
+            dy: 0
+        };
+
+        const balls = [
+            {
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                width: ballSize,
+                height: ballSize,
+                dx: 5,
+                dy: 5,
+                rotation: 0
+            }
+        ];
+
+        const ballImage = new Image();
+        ballImage.src = "logo.png";
+
+        function setNames() {
+            const player1Input = document.getElementById('player1-input').value;
+            const player2Input = document.getElementById('player2-input').value;
+
+            if (player1Input) player1Name = player1Input;
+            if (player2Input) player2Name = player2Input;
+
+            document.getElementById('player1-name').textContent = player1Name;
+            document.getElementById('player2-name').textContent = player2Name;
+
+            document.getElementById('name-fields').style.display = 'none';
+        }
+
+        function drawRect(x, y, width, height, color) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, width, height);
+        }
+
+        function drawBall(ball) {
+            ctx.save();
+            ctx.translate(ball.x + ball.width / 2, ball.y + ball.height / 2);
+            ctx.rotate(ball.rotation);
+            ctx.drawImage(ballImage, -ball.width / 2, -ball.height / 2, ball.width, ball.height);
+            ctx.restore();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Player 2's perspective (rotated)
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(Math.PI); // Rotate 180 degrees
+            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+            drawRect(canvas.width - player2.x - player2.width, canvas.height - player2.y - player2.height, player2.width, player2.height, 'red');
+            ctx.restore();
+
+            // Draw Player 1's paddle
+            drawRect(player1.x, player1.y, player1.width, player1.height, 'blue');
+
+            // Draw Balls
+            balls.forEach(drawBall);
+        }
+
+        function moveBalls() {
+            if (gamePaused) return;
+
+            balls.forEach((ball, index) => {
+                ball.x += ball.dx;
+                ball.y += ball.dy;
+                ball.rotation += 0.1;
+
+                if (ball.x <= 0 || ball.x + ball.width >= canvas.width) {
+                    ball.dx *= -1;
+                }
+
+                if (
+                    ball.y <= player2.y + player2.height &&
+                    ball.x + ball.width >= player2.x &&
+                    ball.x <= player2.x + player2.width
+                ) {
+                    ball.dy *= -1;
+                }
+
+                if (
+                    ball.y + ball.height >= player1.y &&
+                    ball.x + ball.width >= player1.x &&
+                    ball.x <= player1.x + player1.width
+                ) {
+                    ball.dy *= -1;
+                }
+
+                if (ball.y < 0) {
+                    player1Score++;
+                    sendScoreData();
+                    resetBall(ball);
+                }
+
+                if (ball.y + ball.height > canvas.height) {
+                    player2Score++;
+                    sendScoreData();
+                    resetBall(ball);
+                }
+
+                sendBallData(index);
+            });
+
+            updateScoreboard();
+        }
+
+        function resetBall(ball) {
+            ball.x = canvas.width / 2 - ball.width / 2;
+            ball.y = canvas.height / 2 - ball.height / 2;
+            ball.dx *= -1;
+        }
+
+        function movePlayer(player, dx, dy) {
+            player.x += dx;
+            player.y += dy;
+
+            player.x = Math.max(Math.min(player.x, canvas.width - player.width), 0);
+            if (player === player1) {
+                player.y = Math.max(canvas.height / 2, Math.min(player.y, canvas.height - player.height));
+            } else {
+                player.y = Math.max(0, Math.min(player.y, canvas.height / 2 - player.height));
+            }
+        }
+
+        function updateScoreboard() {
+            document.getElementById('player1-score').textContent = player1Score;
+            document.getElementById('player2-score').textContent = player2Score;
+        }
+
+        function loop() {
+            draw();
+            movePlayer(player1, player1.dx, player1.dy);
+            movePlayer(player2, player2.dx, player2.dy);
+            moveBalls();
+            requestAnimationFrame(loop);
+        }
+
+        function resetGame() {
+            player1Score = 0;
+            player2Score = 0;
+            balls.forEach(resetBall);
+            updateScoreboard();
+        }
+
+        function addBall() {
+            balls.push({
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+                width: ballSize,
+                height: ballSize,
+                dx: 5 * (Math.random() > 0.5 ? 1 : -1),
+                dy: 5 * (Math.random() > 0.5 ? 1 : -1),
+                rotation: 0
+            });
+        }
+
+        setInterval(addBall, 60000); // Add a new ball every minute
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') {
+                player1.dx = -8;
+            } else if (e.key === 'ArrowRight') {
+                player1.dx = 8;
+            } else if (e.key === 'ArrowUp') {
+                player1.dy = -8;
+            } else if (e.key === 'ArrowDown') {
+                player1.dy = 8;
+            } else if (e.key === 'Enter') {
+                gamePaused = !gamePaused;
+            } else if (e.key === 'Delete') {
+                resetGame();
+            }
+        });
+
+        window.addEventListener('keyup', () => {
+            player1.dx = 0;
+            player1.dy = 0;
+        });
+
+        ballImage.onload = () => {
+            loop();
+        };
+    </script>
+</body>
+</html>
