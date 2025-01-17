@@ -44,6 +44,16 @@
         #gameCanvas {
             animation: glow 2s infinite;
         }
+
+        #countdown {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: red;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -56,6 +66,7 @@
             <button onclick="setNames()">Set Names</button>
         </div>
     </div>
+    <div id="countdown" style="display: none;">3</div>
     <canvas id="gameCanvas"></canvas>
 
     <script>
@@ -63,6 +74,8 @@
         const ctx = canvas.getContext('2d');
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
+
+        const countdownElement = document.getElementById('countdown');
 
         const socket = new WebSocket('wss://46ed-93-180-124-143.ngrok-free.app');
 
@@ -129,7 +142,7 @@
         const paddleWidth = 100;
         const paddleHeight = 20;
         const ballSize = 40;
-        let gamePaused = false;
+        let gamePaused = true;
 
         const player1 = {
             x: canvas.width / 2 - paddleWidth / 2,
@@ -155,8 +168,8 @@
                 y: canvas.height / 2,
                 width: ballSize,
                 height: ballSize,
-                dx: 5,
-                dy: 5,
+                dx: 0, // Initially static
+                dy: 0,
                 rotation: 0
             }
         ];
@@ -257,79 +270,31 @@
         function resetBall(ball) {
             ball.x = canvas.width / 2 - ball.width / 2;
             ball.y = canvas.height / 2 - ball.height / 2;
-            ball.dx *= -1;
+            ball.dx = 0; // Stop ball initially
+            ball.dy = 0;
+        }
+
+        function startCountdown() {
+            let count = 3;
+            countdownElement.style.display = 'block';
+            countdownElement.textContent = count;
+
+            const countdownInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    countdownElement.textContent = count;
+                } else {
+                    clearInterval(countdownInterval);
+                    countdownElement.style.display = 'none';
+                    launchBall();
+                }
+            }, 1000);
+        }
+
+        function launchBall() {
+            balls[0].dx = 5 * (Math.random() > 0.5 ? 1 : -1);
+            balls[0].dy = 5 * (Math.random() > 0.5 ? 1 : -1);
+            gamePaused = false;
         }
 
         function movePlayer(player, dx, dy) {
-            player.x += dx;
-            player.y += dy;
-
-            player.x = Math.max(Math.min(player.x, canvas.width - player.width), 0);
-            if (player === player1) {
-                player.y = Math.max(canvas.height / 2, Math.min(player.y, canvas.height - player.height));
-            } else {
-                player.y = Math.max(0, Math.min(player.y, canvas.height / 2 - player.height));
-            }
-        }
-
-        function updateScoreboard() {
-            document.getElementById('player1-score').textContent = player1Score;
-            document.getElementById('player2-score').textContent = player2Score;
-        }
-
-        function loop() {
-            draw();
-            movePlayer(player1, player1.dx, player1.dy);
-            movePlayer(player2, player2.dx, player2.dy);
-            moveBalls();
-            requestAnimationFrame(loop);
-        }
-
-        function resetGame() {
-            player1Score = 0;
-            player2Score = 0;
-            balls.forEach(resetBall);
-            updateScoreboard();
-        }
-
-        function addBall() {
-            balls.push({
-                x: canvas.width / 2,
-                y: canvas.height / 2,
-                width: ballSize,
-                height: ballSize,
-                dx: 5 * (Math.random() > 0.5 ? 1 : -1),
-                dy: 5 * (Math.random() > 0.5 ? 1 : -1),
-                rotation: 0
-            });
-        }
-
-        setInterval(addBall, 60000); // Add a new ball every minute
-
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft') {
-                player1.dx = -8;
-            } else if (e.key === 'ArrowRight') {
-                player1.dx = 8;
-            } else if (e.key === 'ArrowUp') {
-                player1.dy = -8;
-            } else if (e.key === 'ArrowDown') {
-                player1.dy = 8;
-            } else if (e.key === 'Enter') {
-                gamePaused = !gamePaused;
-            } else if (e.key === 'Delete') {
-                resetGame();
-            }
-        });
-
-        window.addEventListener('keyup', () => {
-            player1.dx = 0;
-            player1.dy = 0;
-        });
-
-        ballImage.onload = () => {
-            loop();
-        };
-    </script>
-</body>
-</html>
